@@ -1,0 +1,108 @@
+# ==============================================================================
+# Global Multi-Cluster Gateway & HealthCheckPolicy Definitions
+# Target Cluster Context: gke-tokyo (Fleet Config Cluster)
+# ==============================================================================
+# This manifest must ONLY be applied to the Fleet Config Cluster (`gke-tokyo`).
+#
+# It provisions:
+# 1. `external-global-gateway`: A Global External Application Load Balancer using
+#    the `gke-l7-global-external-managed-mc` GatewayClass.
+# 2. `HealthCheckPolicy` objects attached to each `ServiceImport` (`whereami-global`,
+#    `whereami-tokyo`, `whereami-osaka`) to tune health check intervals for fast,
+#    responsive failover during live customer demonstrations.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: external-global-gateway
+  namespace: whereami-demo
+  labels:
+    app.kubernetes.io/name: whereami-gateway
+    app.kubernetes.io/part-of: gke-mcg-active-active-demo
+spec:
+  # Provisions a Google Cloud Global External Application Load Balancer (GFEv3)
+  # capable of routing directly to Pod NEGs across multiple GKE clusters/regions.
+  gatewayClassName: gke-l7-global-external-managed-mc
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces:
+        from: Same
+      kinds:
+      - kind: HTTPRoute
+---
+# Fast HealthCheckPolicy for the shared global ServiceImport (`whereami-global`)
+# Reduces checkIntervalSec to 5s (default: 15s) so regional failover is visible
+# within ~10-15 seconds during a live customer demonstration.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: whereami-global-hc-policy
+  namespace: whereami-demo
+spec:
+  default:
+    checkIntervalSec: 5
+    timeoutSec: 3
+    healthyThreshold: 1
+    unhealthyThreshold: 2
+    logConfig:
+      enabled: true
+    config:
+      type: HTTP
+      httpHealthCheck:
+        portSpecification: USE_SERVING_PORT
+        requestPath: /healthz
+  targetRef:
+    group: net.gke.io
+    kind: ServiceImport
+    name: whereami-global
+---
+# Fast HealthCheckPolicy for the Tokyo-specific ServiceImport (`whereami-tokyo`)
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: whereami-tokyo-hc-policy
+  namespace: whereami-demo
+spec:
+  default:
+    checkIntervalSec: 5
+    timeoutSec: 3
+    healthyThreshold: 1
+    unhealthyThreshold: 2
+    logConfig:
+      enabled: true
+    config:
+      type: HTTP
+      httpHealthCheck:
+        portSpecification: USE_SERVING_PORT
+        requestPath: /healthz
+  targetRef:
+    group: net.gke.io
+    kind: ServiceImport
+    name: whereami-tokyo
+---
+# Fast HealthCheckPolicy for the Osaka-specific ServiceImport (`whereami-osaka`)
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: whereami-osaka-hc-policy
+  namespace: whereami-demo
+spec:
+  default:
+    checkIntervalSec: 5
+    timeoutSec: 3
+    healthyThreshold: 1
+    unhealthyThreshold: 2
+    logConfig:
+      enabled: true
+    config:
+      type: HTTP
+      httpHealthCheck:
+        portSpecification: USE_SERVING_PORT
+        requestPath: /healthz
+  targetRef:
+    group: net.gke.io
+    kind: ServiceImport
+    name: whereami-osaka

@@ -1,0 +1,117 @@
+# ==============================================================================
+# Osaka Region (asia-northeast2) Workload & Multi-Cluster Service Exports
+# Target Cluster Context: gke-osaka
+# ==============================================================================
+# This manifest deploys:
+# 1. `whereami` Deployment with METADATA="osaka-backend"
+# 2. `whereami-osaka` Service + ServiceExport (for explicit weighted routing & regional pinning)
+# 3. `whereami-global` Service + ServiceExport (shared across Tokyo & Osaka for
+#    automatic proximity-based routing and health-check-driven failover)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whereami
+  namespace: whereami-demo
+  labels:
+    app: whereami
+    region: asia-northeast2
+spec:
+  # Minimal replica count (1 Pod) to minimize GKE Autopilot cost for demo purposes
+  replicas: 1
+  selector:
+    matchLabels:
+      app: whereami
+  template:
+    metadata:
+      labels:
+        app: whereami
+        region: asia-northeast2
+    spec:
+      containers:
+      - name: whereami
+        image: us-docker.pkg.dev/google-samples/containers/gke/whereami:v1
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: METADATA
+          value: "osaka-backend"
+        # Minimal GKE Autopilot resource requests (50m vCPU / 64Mi Memory)
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "50m"
+            memory: "64Mi"
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 12
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          # With 50m vCPU on Autopilot, Python/Flask startup takes ~25-35s of wall time
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          failureThreshold: 6
+---
+# Regional Service specifically identifying Osaka Pods (used for weighted splitting)
+apiVersion: v1
+kind: Service
+metadata:
+  name: whereami-osaka
+  namespace: whereami-demo
+  labels:
+    app: whereami
+    routing-scope: regional-osaka
+spec:
+  type: ClusterIP
+  selector:
+    app: whereami
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+---
+# Export `whereami-osaka` to the Fleet so the Multi-Cluster Gateway controller
+# creates a `whereami-osaka` ServiceImport on the Config Cluster.
+apiVersion: net.gke.io/v1
+kind: ServiceExport
+metadata:
+  name: whereami-osaka
+  namespace: whereami-demo
+---
+# Global Service shared across both Tokyo and Osaka clusters (same name & namespace).
+# Exporting this Service from both clusters aggregates Tokyo and Osaka Pod endpoints
+# into a single `whereami-global` ServiceImport for automatic proximity routing & failover.
+apiVersion: v1
+kind: Service
+metadata:
+  name: whereami-global
+  namespace: whereami-demo
+  labels:
+    app: whereami
+    routing-scope: global-active-active
+spec:
+  type: ClusterIP
+  selector:
+    app: whereami
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+---
+apiVersion: net.gke.io/v1
+kind: ServiceExport
+metadata:
+  name: whereami-global
+  namespace: whereami-demo

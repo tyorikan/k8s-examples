@@ -1,0 +1,13 @@
+# ==============================================================================
+# Namespace Definition for GKE Multi-Cluster Gateway Active-Active Demo
+# ==============================================================================
+# IMPORTANT: Multi-Cluster Services (MCS) and GKE Multi-Cluster Gateway rely on
+# Namespace Sameness across all clusters in the Fleet. This Namespace must be
+# created with the exact same name in both Tokyo (gke-tokyo) and Osaka (gke-osaka).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: whereami-demo
+  labels:
+    app.kubernetes.io/name: whereami
+    app.kubernetes.io/part-of: gke-mcg-active-active-demo

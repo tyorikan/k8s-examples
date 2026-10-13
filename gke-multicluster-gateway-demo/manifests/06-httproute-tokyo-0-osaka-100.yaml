@@ -1,0 +1,68 @@
+# ==============================================================================
+# Scenario 3: Osaka Cutover / Planned DR Switchover (0% Tokyo / 100% Osaka)
+# Target Cluster Context: gke-tokyo (Fleet Config Cluster)
+# ==============================================================================
+# Shifts 100% of default (`/`) traffic to Osaka (`whereami-osaka`) and 0% to
+# Tokyo (`whereami-tokyo`) for planned regional maintenance or manual DR cutover.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: whereami-route
+  namespace: whereami-demo
+  labels:
+    demo-scenario: tokyo-0-osaka-100
+spec:
+  parentRefs:
+  - kind: Gateway
+    name: external-global-gateway
+    namespace: whereami-demo
+  rules:
+  # 1. Automatic Proximity-Based Active-Active & Health-Check Failover Path
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /auto
+    backendRefs:
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-global
+      port: 8080
+
+  # 2. Direct Regional Pinning to Tokyo
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /tokyo
+    backendRefs:
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-tokyo
+      port: 8080
+
+  # 3. Direct Regional Pinning to Osaka
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /osaka
+    backendRefs:
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-osaka
+      port: 8080
+
+  # 4. Default Path (`/`): 0% Tokyo / 100% Osaka
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-tokyo
+      port: 8080
+      weight: 0    # 0% of traffic routed to Tokyo (asia-northeast1)
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-osaka
+      port: 8080
+      weight: 100  # 100% of traffic routed to Osaka (asia-northeast2)

@@ -1,0 +1,80 @@
+# ==============================================================================
+# Scenario 1: Active-Active 50/50 Weighted Split + Proximity Auto-Failover Route
+# Target Cluster Context: gke-tokyo (Fleet Config Cluster)
+# ==============================================================================
+# NOTE: While `gateway.networking.k8s.io/v1beta1` is still supported, `v1` is the
+# recommended GA API version on GKE.
+#
+# CRITICAL GKE MULTI-CLUSTER GATEWAY REQUIREMENT:
+# Multi-Cluster Gateway does NOT support standard `Service` resources in `backendRefs`.
+# Every `backendRef` MUST specify `group: net.gke.io` and `kind: ServiceImport`.
+#
+# Routing Summary:
+# - `/auto`  -> `whereami-global` (Single ServiceImport spanning Tokyo & Osaka:
+#               Cloud Load Balancing routes by client proximity, capacity, and
+#               automatically fails over if all Pods in one region become unhealthy)
+# - `/tokyo` -> `whereami-tokyo` (100% pinned to Tokyo cluster for verification)
+# - `/osaka` -> `whereami-osaka` (100% pinned to Osaka cluster for verification)
+# - `/`      -> Explicit 50% Tokyo / 50% Osaka weighted Active-Active distribution
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: whereami-route
+  namespace: whereami-demo
+  labels:
+    demo-scenario: active-active-50-50
+spec:
+  parentRefs:
+  - kind: Gateway
+    name: external-global-gateway
+    namespace: whereami-demo
+  rules:
+  # 1. Automatic Proximity-Based Active-Active & Health-Check Failover Path
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /auto
+    backendRefs:
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-global
+      port: 8080
+
+  # 2. Direct Regional Pinning to Tokyo (for side-by-side inspection)
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /tokyo
+    backendRefs:
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-tokyo
+      port: 8080
+
+  # 3. Direct Regional Pinning to Osaka (for side-by-side inspection)
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /osaka
+    backendRefs:
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-osaka
+      port: 8080
+
+  # 4. Default Path (`/`): Explicit 50:50 Active-Active Weighted Traffic Split
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-tokyo
+      port: 8080
+      weight: 50   # 50% of traffic routed to Tokyo (asia-northeast1)
+    - group: net.gke.io
+      kind: ServiceImport
+      name: whereami-osaka
+      port: 8080
+      weight: 50   # 50% of traffic routed to Osaka (asia-northeast2)
